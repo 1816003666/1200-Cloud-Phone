@@ -1,0 +1,45 @@
+# 云手机平台任务看板 —— 一键编排
+# 启动：docker compose up --build
+# 访问：前端 http://localhost:5173  →  nginx 反代 /api 到 backend:8000
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: cpb
+      POSTGRES_PASSWORD: cpb
+      POSTGRES_DB: cpb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://cpb:cpb@postgres:5432/cpb
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-please}
+      DEVICE_BACKEND: simulator
+      CORS_ORIGINS: "*"
+      SEED_ADMIN_USERNAME: admin
+      SEED_ADMIN_PASSWORD: Admin@123456
+      SEED_SUPERADMIN_USERNAME: root
+      SEED_SUPERADMIN_PASSWORD: Root@123456
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:
