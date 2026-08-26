@@ -149,3 +149,71 @@ superadmin    4   全部权限 + 系统级配置
 - 开发：`Flask-SQLAlchemy` 的 `db.create_all()` 在应用工厂首次启动时建表（无需 Alembic）。
 - 种子：`seed.py` 写入 `admin` / `root` 两个初始账号及默认分组。
 - 生产：Docker 用 PostgreSQL 15，`DATABASE_URL` 经环境变量注入，逻辑完全一致。
+
+---
+
+## 三、石文盛任务完成清单与接口总览
+
+> 完整接口细节见 [`docs/API接口文档.md`](./docs/API接口文档.md)。
+
+| # | 任务书条目 | 状态 | 后端模块 | 关键接口 | 前端页面 |
+|---|-----------|------|----------|----------|----------|
+| 1 | 项目初始化与技术选型（React+Flask+Docker） | ✅ | 全局 | — | — |
+| 2 | 数据库架构设计 | ✅ | `models.py` | — | — |
+| 3 | 用户认证与权限（JWT+RBAC） | ✅ | `auth.py` + `routes/auth.py` | `/auth/login`、`/auth/me`、`/auth/refresh`、`/auth/register` | Login / Register |
+| 4 | 文件管理模块 | ✅ | `routes/files.py` | `/files/upload`、`/files`、`/files/<id>/download`、`/files/<id>/push` | Files |
+| 5 | 脚本管理模块 | ✅ | `routes/scripts.py` | `/scripts`、`/scripts/templates`、`/scripts/<id>/execute` | Scripts |
+| 6 | 分组管理模块 | ✅ | `routes/groups.py` | `/groups`、`/groups/<id>/batch-action` | Groups |
+| 7 | 审计日志系统 | ✅ | `routes/audit.py` | `/audit`、`/audit/stats` | Audit |
+| 8 | 告警系统 | ✅ | `routes/alerts.py` + `models.Alert` | `/alerts`、`/alerts/summary` | Alerts |
+| 9 | 登录/注册页面 | ✅ | `routes/auth.py`(register) | `/auth/login`、`/auth/register` | Login / Register |
+| 10 | 用户管理页面 | ✅ | `routes/users.py` | `/users` | Users |
+| 11 | Docker 容器化部署（与彭旨豪共担） | ✅ | `docker-compose.yml` + `backend/Dockerfile` + `frontend/Dockerfile` | — | — |
+| 12 | GitHub 代码推送（与彭旨豪共担） | ⏳ | git 已提交 2 commit，待关联远程仓库 | — | — |
+
+> 设备管理 / Redroid 后端 / 远程控制 / ws-scrcpy / 全局布局 / 分轮次 / 服务器部署 / 全功能测试 / run.bat 为**彭旨豪**负责，未在此文档覆盖。
+
+### 3.1 角色与权限矩阵（RBAC）
+
+| 接口分组 | viewer(1) | operator(2) | admin(3) | superadmin(4) |
+|----------|:---:|:---:|:---:|:---:|
+| `/auth/me`、`/metrics/overview` | ✅ | ✅ | ✅ | ✅ |
+| `/files`(浏览/下载)、`/scripts`(查看)、`/groups`(查看)、`/scripts/templates` | ✅ | ✅ | ✅ | ✅ |
+| `/files/upload|delete|push`、`/scripts`(增删改/执行)、`/groups/<id>/batch-action`、`/devices/*`(操控) | ❌ | ✅ | ✅ | ✅ |
+| `/users`、`/groups`(增删改)、`/audit`、`/alerts` | ❌ | ❌ | ✅ | ✅ |
+| 创建/分配 `admin` 及以上角色 | ❌ | ❌ | ❌ | ✅ |
+
+---
+
+## 四、认证与 RBAC 流程
+
+### 4.1 登录态流程
+
+```
+浏览器                    前端(client.js)                后端(Flask)
+  │  输入账号密码              │                              │
+  │─────────────────────────▶│ POST /auth/login             │
+  │                          │─────────────────────────────▶│ verify_password(pbkdf2)
+  │                          │                              │ create_access_token(HS256)
+  │◀──────── 返回 access_token ────────────────────────────│
+  │                          │ 存 localStorage.token        │
+  │ 后续请求携带 Bearer       │                              │
+  │─────────────────────────▶│ 拦截器注入 Authorization      │
+  │                          │─────────────────────────────▶│ _resolve_user 解码 JWT
+  │                          │                              │ login_required / require_role 校验
+  │◀──────────── JSON 数据 ───│◀────────────────────────────│
+  │  401 → 清 token 跳 /login │                              │
+```
+
+### 4.2 密码与 Token 安全设计
+
+- **密码存储**：`pbkdf2_hmac(sha256, 密码, 随机salt, 200000轮)`，格式 `pbkdf2_sha256$rounds$salt$dk`；校验用 `hmac.compare_digest` 防时序攻击，**绝不存明文**。
+- **JWT**：HS256，payload = `{sub: 用户id, exp: now+JWT_EXPIRE_HOURS}`；密钥取自 `app.config["JWT_SECRET"]`（生产务必改 `.env`）。
+- **无状态**：服务端不存 session，登出由前端清 `localStorage`；`/auth/refresh` 支持旧 token 换新。
+- **最小权限**：`require_role(min_role)` 在路由层拦截，解析失败/过期 → 401，级别不足 → 403，**绝不静默放行**。
+
+### 4.3 审计与告警联动
+
+- 所有写操作（建/删/改用户、文件、脚本、分组、执行脚本、注册等）均调用 `record_audit()` 落 `audit_logs`，admin 可在「审计日志」页按 actor/action/类型/时间过滤并查看高频统计。
+- 操作失败（如脚本回放部分设备缺失）自动 `raise_alert("operation_failure", ...)`；设备离线、CPU/内存超阈值由 `scheduler.py` 后台任务周期性检测并产告警（`device_offline` / `resource_limit`）。告警 30 分钟去重，避免刷屏。
+
