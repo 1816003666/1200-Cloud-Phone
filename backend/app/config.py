@@ -52,6 +52,18 @@ class Config:
     # redroid 容器名前缀
     REDROID_CONTAINER_PREFIX = os.environ.get("REDROID_CONTAINER_PREFIX", "redroid")
 
+    # ---- 视频投屏（scrcpy server 自动部署）----
+    # 服务器上 scrcpy-server.jar 路径：新容器创建/启动后自动 push 并拉起 server，
+    # 保证每台云手机首次预览即有全新编码器、画面清晰一致
+    SCRCPY_SERVER_JAR = os.environ.get(
+        "SCRCPY_SERVER_JAR",
+        "/home/zzzz/ws-scrcpy/dist/vendor/Genymobile/scrcpy/scrcpy-server.jar",
+    )
+    # scrcpy server 版本标识（需与 ws-scrcpy 版本匹配）
+    SCRCPY_SERVER_VERSION = os.environ.get("SCRCPY_SERVER_VERSION", "1.19-ws8")
+    # scrcpy server 视频监听端口（容器内，与 ws-scrcpy remote=tcp:8886 对应）
+    SCRCPY_SERVER_PORT = int(os.environ.get("SCRCPY_SERVER_PORT", "8886"))
+
     # ---- CORS ----
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 

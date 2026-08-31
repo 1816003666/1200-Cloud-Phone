@@ -759,6 +759,29 @@ def _find_container_by_port(port: int) -> str | None:
     return None
 
 
+def _deploy_scrcpy_server(client, port: int) -> None:
+    """在服务器上为新容器部署 scrcpy server（push jar + setsid 启动）。
+
+    需在容器 ADB 就绪后调用；幂等（jar 已存在则直接启动）。
+    部署失败不阻断主流程（ws-scrcpy 连接时也可自动拉起）。
+    """
+    try:
+        jar = current_app.config.get("SCRCPY_SERVER_JAR", "")
+        ver = current_app.config.get("SCRCPY_SERVER_VERSION", "1.19-ws8")
+        sport = int(current_app.config.get("SCRCPY_SERVER_PORT", 8886))
+        if not jar:
+            return
+        _ssh_exec(client, f"adb -s 127.0.0.1:{port} push {jar} /data/local/tmp/scrcpy-server.jar", timeout=60)
+        _ssh_exec(
+            client,
+            f"adb -s 127.0.0.1:{port} shell 'CLASSPATH=/data/local/tmp/scrcpy-server.jar "
+            f"setsid nohup app_process / com.genymobile.scrcpy.Server {ver} web ERROR {sport} true >/dev/null 2>&1 &'",
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+
 def create_redroid_container(port: int) -> dict:
     """在服务器上创建并启动 redroid 容器。"""
     if not _ssh_enabled():
@@ -799,6 +822,10 @@ def create_redroid_container(port: int) -> dict:
             if any(d["serial"] == serial and d["status"] == "device" for d in devices):
                 break
             time.sleep(1)
+
+
+        # 自动部署 scrcpy server（保证视频投屏可用、画面一致）
+        _deploy_scrcpy_server(client, port)
 
         return {"ok": True, "container": container_name, "port": port, "serial": serial}
     except Exception as e:
@@ -862,6 +889,9 @@ def container_power(port: int, action: str) -> dict:
                 if any(d["serial"] == serial and d["status"] == "device" for d in devices):
                     break
                 time.sleep(1)
+
+            # 自动部署 scrcpy server
+            _deploy_scrcpy_server(client, port)
             return {"ok": True, "action": "start", "container": container_name}
 
         elif action == "stop":
@@ -882,6 +912,9 @@ def container_power(port: int, action: str) -> dict:
                 if any(d["serial"] == serial and d["status"] == "device" for d in devices):
                     break
                 time.sleep(1)
+
+            # 自动部署 scrcpy server
+            _deploy_scrcpy_server(client, port)
             return {"ok": True, "action": "restart", "container": container_name}
 
         return {"ok": False, "error": f"未知操作: {action}"}
