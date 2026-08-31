@@ -738,6 +738,29 @@ def find_available_adb_port() -> int:
     return port
 
 
+def list_server_redroid_ports() -> list:
+    """扫描服务器上运行中的 redroid 容器，返回其对外 ADB 端口列表。
+
+    以 docker 容器真实运行状态为准（比易失的 adb 连接更可靠），供设备同步使用。
+    """
+    ports = set()
+    for c in list_remote_containers():
+        if not c["status"].startswith("Up"):
+            continue
+        for seg in c["ports"].split(","):
+            seg = seg.strip()
+            if "->" not in seg or "0.0.0.0:" not in seg:
+                continue
+            host_part = seg.split("->")[0].strip()
+            if ":" in host_part:
+                host_part = host_part.rsplit(":", 1)[-1]
+            try:
+                ports.add(int(host_part))
+            except ValueError:
+                pass
+    return sorted(ports)
+
+
 def _find_container_by_port(port: int) -> str | None:
     """在服务器上按 ADB 端口查找容器名（兼容 redroid1/redroid2 与 redroid-15555 命名）。"""
     for c in list_remote_containers():

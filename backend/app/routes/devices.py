@@ -432,9 +432,16 @@ def sync_devices():
     - simulator 设备不受影响
     """
     cur = g.current_user
-    # 1. 扫描 ADB 设备
-    adb_devices = orchestrator.list_adb_devices()
-    online_serials = {d["serial"] for d in adb_devices if d["status"] == "device"}
+    # 1. 扫描服务器真实运行的 redroid 容器端口（以容器状态为准，而非易失的 adb 连接）
+    server = orchestrator._server_ip()
+    container_ports = orchestrator.list_server_redroid_ports()
+    online_serials = {f"{server}:{p}" for p in container_ports}
+    # 对在线设备重新 adb_connect，确保可操控
+    for _serial in online_serials:
+        try:
+            orchestrator.adb_connect(_serial)
+        except Exception:
+            pass
 
     # 2. 获取数据库中所有 redroid 设备
     db_devices = db.session.query(Device).filter_by(backend="redroid").all()
