@@ -759,27 +759,38 @@ def _find_container_by_port(port: int) -> str | None:
     return None
 
 
-def _deploy_scrcpy_server(client, port: int) -> None:
-    """在服务器上为新容器部署 scrcpy server（push jar + setsid 启动）。
+def _deploy_scrcpy_server(client, port: int, retries: int = 3, delay: float = 6) -> None:
+    """在服务器上为新容器部署 scrcpy server（确保 ADB 连接 + push jar + setsid 启动）。
 
-    需在容器 ADB 就绪后调用；幂等（jar 已存在则直接启动）。
-    部署失败不阻断主流程（ws-scrcpy 连接时也可自动拉起）。
+    幂等（jar 已存在则直接启动）；带重试：ADB 未就绪时自动等待重试，
+    保证新创建的云手机首次预览即有画面。部署最终失败不阻断主流程。
     """
-    try:
-        jar = current_app.config.get("SCRCPY_SERVER_JAR", "")
-        ver = current_app.config.get("SCRCPY_SERVER_VERSION", "1.19-ws8")
-        sport = int(current_app.config.get("SCRCPY_SERVER_PORT", 8886))
-        if not jar:
+    jar = current_app.config.get("SCRCPY_SERVER_JAR", "")
+    ver = current_app.config.get("SCRCPY_SERVER_VERSION", "1.19-ws8")
+    sport = int(current_app.config.get("SCRCPY_SERVER_PORT", 8886))
+    if not jar:
+        return
+    for attempt in range(max(1, retries)):
+        try:
+            # 每次先确保 ADB 已连接（容器冷启动可能较慢）
+            _ssh_exec(client, f"adb connect 127.0.0.1:{port}", timeout=20)
+            rc, out, err = _ssh_exec(
+                client,
+                f"adb -s 127.0.0.1:{port} push {jar} /data/local/tmp/scrcpy-server.jar",
+                timeout=60,
+            )
+            if rc != 0:
+                time.sleep(delay)
+                continue
+            _ssh_exec(
+                client,
+                f"adb -s 127.0.0.1:{port} shell 'CLASSPATH=/data/local/tmp/scrcpy-server.jar "
+                f"setsid nohup app_process / com.genymobile.scrcpy.Server {ver} web ERROR {sport} true >/dev/null 2>&1 &'",
+                timeout=30,
+            )
             return
-        _ssh_exec(client, f"adb -s 127.0.0.1:{port} push {jar} /data/local/tmp/scrcpy-server.jar", timeout=60)
-        _ssh_exec(
-            client,
-            f"adb -s 127.0.0.1:{port} shell 'CLASSPATH=/data/local/tmp/scrcpy-server.jar "
-            f"setsid nohup app_process / com.genymobile.scrcpy.Server {ver} web ERROR {sport} true >/dev/null 2>&1 &'",
-            timeout=30,
-        )
-    except Exception:
-        pass
+        except Exception:
+            time.sleep(delay)
 
 
 def create_redroid_container(port: int) -> dict:
@@ -816,8 +827,9 @@ def create_redroid_container(port: int) -> dict:
         # 等待 ADB 就绪（最多 30 秒）
         server = _server_ip()
         serial = f"{server}:{port}"
-        adb_connect(serial)
-        for _ in range(30):
+        # 等待 ADB 就绪（最多 60 秒，每次迭代重连，兼容容器冷启动慢的情况）
+        for _ in range(60):
+            adb_connect(serial)
             devices = list_adb_devices()
             if any(d["serial"] == serial and d["status"] == "device" for d in devices):
                 break
