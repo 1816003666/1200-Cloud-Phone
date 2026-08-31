@@ -43,7 +43,12 @@ export default function Users() {
 
   return (
     <div>
-      <h2>用户管理（admin 及以上）</h2>
+      <div className="page-header">
+        <div className="page-title">
+          <h2>用户管理</h2>
+          <span className="perm-badge">管理员</span>
+        </div>
+      </div>
       {err && <div className="err">{err}</div>}
       <form onSubmit={handleSubmit} className="task-form">
         <input placeholder="用户名" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />

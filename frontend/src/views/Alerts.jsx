@@ -43,7 +43,13 @@ export default function Alerts() {
 
   return (
     <div>
-      <h2>告警中心（admin 及以上）</h2>
+      <div className="page-header">
+        <div className="page-title">
+          <h2>告警中心</h2>
+          <span className="perm-badge">管理员</span>
+          <button className="ghost" onClick={() => api.downloadCsv("alerts")}>导出 CSV</button>
+        </div>
+      </div>
       {err && <div className="err">{err}</div>}
 
       <div className="alert-cards">

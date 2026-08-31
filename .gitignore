@@ -16,3 +16,9 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# 运行时二进制（超过 GitHub 100MB 限制，部署时单独放置）
+backend/bin/
+
+# 构建产物压缩包
+*.zip

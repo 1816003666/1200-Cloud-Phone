@@ -1,10 +1,32 @@
-"""鉴权路由：登录、当前用户、登出（无状态，登出由前端清 token）。"""
+"""鉴权路由：登录、当前用户、登出（无状态，登出由前端清 token）。
+
+登录安全（增强）：
+- 连续失败 >=5 次锁定账号 15 分钟；
+- 连续失败 >=3 次起要求算术验证码，防暴力撞库。
+"""
+import random
+import uuid
+from datetime import timedelta
 from flask import request, jsonify, current_app, Blueprint
 auth_bp = Blueprint("auth", __name__)
 from ..extensions import db
-from ..models import User, record_audit
+from ..models import User, record_audit, _utcnow
 from ..auth import (hash_password, verify_password, create_access_token,
                     _resolve_user, validate_password, ROLE_LEVELS)
+
+# 单进程内存验证码存储：captcha_id -> answer（简单算数题）
+_captcha_store = {}
+MAX_FAILS = 5
+CAPTCHA_AFTER = 3
+LOCK_MINUTES = 15
+
+
+def _gen_captcha():
+    a = random.randint(2, 9)
+    b = random.randint(2, 9)
+    cid = uuid.uuid4().hex[:12]
+    _captcha_store[cid] = str(a + b)
+    return {"captcha_id": cid, "question": f"{a} + {b} = ?"}
 
 
 @auth_bp.post("/auth/login")
@@ -15,10 +37,53 @@ def login():
     if not username or not password:
         return jsonify(error="用户名和密码必填"), 400
 
+    now = _utcnow()
     user = db.session.query(User).filter_by(username=username).first()
+
+    # 1) 锁定检查
+    if user is not None and user.locked_until and user.locked_until > now:
+        remain = int((user.locked_until - now).total_seconds() // 60) + 1
+        return jsonify(error=f"账号已锁定，请 {remain} 分钟后重试"), 423
+
+    # 2) 连续失败达阈值要求验证码（验证码缺失/错误同样计失败，避免无限重试绕过锁定）
+    need_captcha = user is not None and (user.failed_attempts or 0) >= CAPTCHA_AFTER
+    if need_captcha:
+        cid = data.get("captcha_id")
+        ans = data.get("captcha")
+        bad = True
+        if cid and _captcha_store.get(cid) is not None:
+            if str(_captcha_store.pop(cid, None)) == str(ans or "").strip():
+                bad = False
+        if bad:
+            user.failed_attempts = (user.failed_attempts or 0) + 1
+            if user.failed_attempts >= MAX_FAILS:
+                user.locked_until = now + timedelta(minutes=LOCK_MINUTES)
+                user.failed_attempts = 0
+                db.session.commit()
+                return jsonify(error=f"连续失败次数过多，账号已锁定 {LOCK_MINUTES} 分钟"), 423
+            db.session.commit()
+            return jsonify(error="验证码错误" if cid else "请填写验证码",
+                           need_captcha=True, captcha=_gen_captcha()), 401
+
+    # 3) 校验凭据
     if user is None or not user.is_active or not verify_password(password, user.hashed_password):
+        if user is not None:
+            user.failed_attempts = (user.failed_attempts or 0) + 1
+            if user.failed_attempts >= MAX_FAILS:
+                user.locked_until = now + timedelta(minutes=LOCK_MINUTES)
+                user.failed_attempts = 0
+                db.session.commit()
+                return jsonify(error=f"连续失败次数过多，账号已锁定 {LOCK_MINUTES} 分钟"), 423
+            db.session.commit()
+            again = (user.failed_attempts or 0) >= CAPTCHA_AFTER
+            return jsonify(error="用户名或密码错误", need_captcha=again,
+                           captcha=_gen_captcha() if again else None), 401
         return jsonify(error="用户名或密码错误"), 401
 
+    # 4) 成功：重置计数并签发 token
+    user.failed_attempts = 0
+    user.locked_until = None
+    db.session.commit()
     token = create_access_token(user.id)
     return jsonify(access_token=token, user=user.to_dict())
 

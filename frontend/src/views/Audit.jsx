@@ -23,7 +23,13 @@ export default function Audit() {
 
   return (
     <div>
-      <h2>审计日志（admin 及以上）</h2>
+      <div className="page-header">
+        <div className="page-title">
+          <h2>审计日志</h2>
+          <span className="perm-badge">管理员</span>
+          <button className="ghost" onClick={() => api.downloadCsv("audit")}>导出 CSV</button>
+        </div>
+      </div>
       {err && <div className="err">{err}</div>}
 
       <h3>高频操作 Top</h3>

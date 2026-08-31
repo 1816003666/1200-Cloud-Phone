@@ -9,6 +9,8 @@ from .files import files_bp
 from .scripts import scripts_bp
 from .groups import groups_bp
 from .alerts import alerts_bp
+from .exports import exports_bp
+from .settings import settings_bp
 
 __all__ = [
     "auth_bp",
@@ -21,4 +23,6 @@ __all__ = [
     "scripts_bp",
     "groups_bp",
     "alerts_bp",
+    "exports_bp",
+    "settings_bp",
 ]

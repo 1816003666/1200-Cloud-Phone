@@ -34,8 +34,8 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('auth:logout', onLogout)
   }, [])
 
-  async function login(username, password) {
-    const { data } = await api.login(username, password)
+  async function login(username, password, extra = {}) {
+    const { data } = await api.login(username, password, extra)
     localStorage.setItem('token', data.access_token)
     localStorage.setItem('user', JSON.stringify(data.user))
     setToken(data.access_token)

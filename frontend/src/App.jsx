@@ -12,12 +12,18 @@ import Scripts from './views/Scripts.jsx'
 import Groups from './views/Groups.jsx'
 import Audit from './views/Audit.jsx'
 import Alerts from './views/Alerts.jsx'
+import Settings from './views/Settings.jsx'
+import DeviceControl from './views/DeviceControl.jsx'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* 全屏远程控制（无侧边栏） */}
+      <Route path="/devices/:id/control" element={
+        <ProtectedRoute><DeviceControl /></ProtectedRoute>
+      } />
       <Route
         element={
           <ProtectedRoute>
@@ -35,6 +41,7 @@ export default function App() {
         {<Route path="/users" element={<Users />} />}
         {<Route path="/audit" element={<Audit />} />}
         {<Route path="/alerts" element={<Alerts />} />}
+        {<Route path="/settings" element={<Settings />} />}
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

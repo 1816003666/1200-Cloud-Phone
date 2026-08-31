@@ -19,9 +19,13 @@ def create_app(config_class=Config):
     cors.init_app(app, origins=app.config["CORS_ORIGINS"],
                   supports_credentials=True)
 
+    # WebSocket 实时视频流
+    from .stream import sock
+    sock.init_app(app)
+
     # 注册路由蓝图
     from .routes import (auth_bp, users_bp, devices_bp, tasks_bp, dashboard_bp,
-                         audit_bp, files_bp, scripts_bp, groups_bp, alerts_bp)
+                         audit_bp, files_bp, scripts_bp, groups_bp, alerts_bp, exports_bp, settings_bp)
     app.register_blueprint(auth_bp, url_prefix="/api")
     app.register_blueprint(users_bp, url_prefix="/api")
     app.register_blueprint(devices_bp, url_prefix="/api")
@@ -32,6 +36,8 @@ def create_app(config_class=Config):
     app.register_blueprint(scripts_bp, url_prefix="/api")
     app.register_blueprint(groups_bp, url_prefix="/api")
     app.register_blueprint(alerts_bp, url_prefix="/api")
+    app.register_blueprint(exports_bp, url_prefix="/api")
+    app.register_blueprint(settings_bp, url_prefix="/api")
 
     # 确保上传目录存在（文件管理模块）
     import os
@@ -41,6 +47,30 @@ def create_app(config_class=Config):
     with app.app_context():
         from . import models  # noqa: F401  确保模型被导入，建表用
         db.create_all()
+        # 轻量迁移：rotation_config 表补 devices_per_round 列（老库升级）
+        from sqlalchemy import text, inspect as sa_inspect
+        _insp = sa_inspect(db.engine)
+        if "rotation_config" in _insp.get_table_names():
+            _cols = {c["name"] for c in _insp.get_columns("rotation_config")}
+            if "devices_per_round" not in _cols:
+                with db.engine.begin() as _conn:
+                    _conn.execute(text(
+                        "ALTER TABLE rotation_config "
+                        "ADD COLUMN devices_per_round INTEGER DEFAULT 2 NOT NULL"
+                    ))
+        if "scheduled_tasks" in _insp.get_table_names():
+            _tcols = {c["name"] for c in _insp.get_columns("scheduled_tasks")}
+            if "cron_expr" not in _tcols:
+                with db.engine.begin() as _conn:
+                    _conn.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN cron_expr VARCHAR(64) DEFAULT ''"))
+        if "users" in _insp.get_table_names():
+            _ucols = {c["name"] for c in _insp.get_columns("users")}
+            if "failed_attempts" not in _ucols:
+                with db.engine.begin() as _conn:
+                    _conn.execute(text("ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0"))
+            if "locked_until" not in _ucols:
+                with db.engine.begin() as _conn:
+                    _conn.execute(text("ALTER TABLE users ADD COLUMN locked_until DATETIME"))
         from .seed import seed
         seed()
         from .scheduler import start_scheduler

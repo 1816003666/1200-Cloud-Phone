@@ -1,9 +1,43 @@
 """数据看板：/metrics/overview 返回前端看板所需全部聚合指标。"""
-from flask import jsonify, Blueprint
+from flask import jsonify, Blueprint, request
 dashboard_bp = Blueprint("dashboard", __name__)
 from ..extensions import db
 from ..models import Device, ScheduledTask, Group, AuditLog, TaskExecution
 from ..auth import login_required
+
+
+@dashboard_bp.get("/metrics/server")
+@login_required
+def server_metrics():
+    """服务器实时监控：CPU 负载 / 内存 / 磁盘 / Docker 容器 + 云手机 ADB 在线。"""
+    from ..scheduler import _collect_server_health
+    from .. import orchestrator
+
+    server = _collect_server_health()
+    # 云手机在线统计
+    adb_online = 0
+    try:
+        adb_devs = orchestrator.list_adb_devices()
+        adb_online = sum(1 for x in adb_devs if x["status"] == "device")
+    except Exception:  # noqa: BLE001
+        pass
+    total = db.session.query(Device).filter_by(backend="redroid").count()
+    running = db.session.query(Device).filter(
+        Device.backend == "redroid", Device.status == "running").count()
+    error = db.session.query(Device).filter(
+        Device.backend == "redroid", Device.status == "error").count()
+
+    return jsonify({
+        "server": server,
+        "devices": {"total": total, "online": adb_online,
+                    "running": running, "error": error},
+        "collected_at": _utcnow_iso(),
+    })
+
+
+def _utcnow_iso():
+    from ..models import _utcnow
+    return _utcnow().isoformat()
 
 
 @dashboard_bp.get("/metrics/overview")
@@ -54,3 +88,30 @@ def overview():
             "failed": last_exec.failed
         } if last_exec else None,
     })
+
+
+@dashboard_bp.get("/metrics/trend")
+@login_required
+def metrics_trend():
+    """历史趋势数据（看板折线图）：默认最近 24h，可 ?hours= 调整。"""
+    from datetime import timedelta
+    from ..models import MetricsSnapshot
+    hours = min(int(request.args.get("hours", 24)), 168)
+    since = _utcnow_iso_dt() - timedelta(hours=hours)
+    rows = db.session.query(MetricsSnapshot).filter(
+        MetricsSnapshot.ts >= since).order_by(MetricsSnapshot.ts).all()
+    return jsonify([{
+        "ts": r.ts.isoformat(),
+        "server_cpu": r.server_cpu,
+        "server_mem": r.server_mem,
+        "server_disk": r.server_disk,
+        "containers": r.containers,
+        "devices_online": r.devices_online,
+        "devices_total": r.devices_total,
+    } for r in rows])
+
+
+def _utcnow_iso_dt():
+    from ..models import _utcnow
+    return _utcnow()
+

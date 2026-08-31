@@ -1,23 +1,91 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client.js'
 
+const TYPE_META = {
+  image: { label: '图片', cls: 'image' },
+  apk:   { label: 'APK',  cls: 'apk' },
+  doc:   { label: '文档', cls: 'doc' },
+  other: { label: '其他', cls: 'other' },
+}
+const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico']
+const DOC_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv']
+
+function fileType(name) {
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  if (IMG_EXT.includes(ext)) return 'image'
+  if (ext === 'apk') return 'apk'
+  if (DOC_EXT.includes(ext)) return 'doc'
+  return 'other'
+}
+
+function fmtSize(n) {
+  if (n == null) return '-'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(2)} MB`
+}
+
+function fmtTime(s) {
+  if (!s) return '-'
+  const d = new Date(s)
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
+
 export default function Files() {
   const [items, setItems] = useState([])
   const [devices, setDevices] = useState([])
-  const [selected, setSelected] = useState({})      // 文件id -> [deviceId...]
+  const [groups, setGroups] = useState([])
+  const [stats, setStats] = useState({ total_files: 0, total_size: 0, by_type: {} })
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [selection, setSelection] = useState(new Set())   // 选中的文件 id
+  const [preview, setPreview] = useState(null)            // {id,filename,type,url,size}
+  const [modal, setModal] = useState(null)                 // {mode:'push'|'install', ids:[...]}
+  const [pushDev, setPushDev] = useState(new Set())       // 推送/安装弹窗勾选的设备
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
 
   async function load() {
-    const r = await api.listFiles({ page: 1, page_size: 100 })
-    setItems(r.data.items)
+    const r = await api.listFiles({ page: 1, page_size: 200 })
+    setItems(r.data.items || [])
+  }
+  async function loadStats() {
+    try {
+      const r = await api.fileStats()
+      setStats(r.data)
+    } catch (e) { /* 忽略 */ }
   }
   async function loadDevices() {
-    const r = await api.listDevices({ page: 1, page_size: 200 })
+    const r = await api.listDevices({ page: 1, page_size: 300 })
     setDevices(r.data.items || r.data || [])
   }
-  useEffect(() => { load(); loadDevices() }, [])
+  async function loadGroups() {
+    try {
+      const r = await api.listGroups()
+      setGroups(r.data || [])
+    } catch (e) { /* 忽略 */ }
+  }
+  useEffect(() => { load(); loadStats(); loadDevices(); loadGroups() }, [])
+
+  const groupMap = Object.fromEntries((groups || []).map((g) => [g.id, g.name]))
+  const groupDevices = (gid) => devices.filter((d) => d.group_id === gid)
+
+  const filtered = typeFilter === 'all' ? items : items.filter((f) => fileType(f.filename) === typeFilter)
+  const selCount = selection.size
+  const allChecked = filtered.length > 0 && filtered.every((f) => selection.has(f.id))
+
+  function toggleAll() {
+    const next = new Set(selection)
+    if (allChecked) filtered.forEach((f) => next.delete(f.id))
+    else filtered.forEach((f) => next.add(f.id))
+    setSelection(next)
+  }
+  function toggleOne(id) {
+    const next = new Set(selection)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelection(next)
+  }
 
   async function handleUpload(e) {
     e.preventDefault()
@@ -28,7 +96,7 @@ export default function Files() {
       await api.uploadFile(file)
       setMsg('上传成功')
       fileRef.current.value = ''
-      load()
+      load(); loadStats()
     } catch (e) {
       setErr(e.response?.data?.error || '上传失败')
     }
@@ -36,78 +104,276 @@ export default function Files() {
 
   async function handleDelete(id) {
     if (!confirm('确认删除该文件？')) return
-    await api.deleteFile(id)
-    load()
-  }
-
-  async function handlePush(id) {
-    const ids = selected[id] || []
-    if (!ids.length) return setErr('请先勾选要推送的设备')
-    setErr('')
     try {
-      const r = await api.pushFile(id, ids)
-      setMsg(`已推送至 ${r.data.ok} 台设备`)
-      load()
+      await api.deleteFile(id)
+      load(); loadStats()
     } catch (e) {
-      setErr(e.response?.data?.error || '推送失败')
+      setErr(e.response?.data?.error || '删除失败')
     }
   }
 
-  function toggleDevice(fileId, devId) {
-    const cur = selected[fileId] || []
-    setSelected({
-      ...selected,
-      [fileId]: cur.includes(devId) ? cur.filter((x) => x !== devId) : [...cur, devId],
-    })
+  async function handleBatchDelete() {
+    if (!selCount) return
+    if (!confirm(`确认删除选中的 ${selCount} 个文件？`)) return
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      for (const id of selection) await api.deleteFile(id)
+      setMsg(`已删除 ${selCount} 个文件`)
+      setSelection(new Set())
+      load(); loadStats()
+    } catch (e) {
+      setErr(e.response?.data?.error || '批量删除失败')
+    } finally {
+      setBusy(false)
+    }
   }
+
+  function openModal(mode, ids) {
+    setPushDev(new Set())
+    setModal({ mode, ids })
+  }
+
+  async function handleModalConfirm() {
+    const devIds = [...pushDev]
+    if (!devIds.length) return setErr('请至少选择一台设备')
+    setBusy(true); setErr(''); setMsg('')
+    const isInstall = modal.mode === 'install'
+    let okCount = 0
+    try {
+      for (const fid of modal.ids) {
+        const r = isInstall ? await api.installFile(fid, devIds) : await api.pushFile(fid, devIds)
+        okCount += r.data.ok || 0
+      }
+      setMsg(`${isInstall ? '安装' : '推送'}完成：成功 ${okCount}/${devIds.length} 台`)
+      setModal(null)
+      setSelection(new Set())
+      load()
+    } catch (e) {
+      setErr(e.response?.data?.error || (isInstall ? '安装失败' : '推送失败'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function toggleDev(id) {
+    const next = new Set(pushDev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setPushDev(next)
+  }
+  function toggleGroup(gid) {
+    const ids = groupDevices(gid).map((d) => d.id)
+    if (!ids.length) return
+    const next = new Set(pushDev)
+    const allOn = ids.every((id) => next.has(id))
+    ids.forEach((id) => (allOn ? next.delete(id) : next.add(id)))
+    setPushDev(next)
+  }
+
+  async function openPreview(f) {
+    const t = fileType(f.filename)
+    if (t === 'image') {
+      try {
+        const r = await api.getFileBlob(f.id)
+        const url = URL.createObjectURL(r.data)
+        setPreview({ id: f.id, filename: f.filename, type: t, url, size: f.size })
+      } catch (e) {
+        setErr('图片加载失败')
+      }
+    } else {
+      setPreview({ id: f.id, filename: f.filename, type: t, url: null, size: f.size })
+    }
+  }
+
+  const typeTabs = [
+    ['all', '全部', stats.total_files],
+    ['image', '图片', stats.by_type?.image?.count || 0],
+    ['apk', 'APK', stats.by_type?.apk?.count || 0],
+    ['doc', '文档', stats.by_type?.doc?.count || 0],
+    ['other', '其他', stats.by_type?.other?.count || 0],
+  ]
+  const totalSize = stats.total_size || 0
+  const typePct = (t) => (totalSize ? Math.round(((stats.by_type?.[t]?.size || 0) / totalSize) * 100) : 0)
+  const colorOf = { image: '#3b82f6', apk: '#22c55e', doc: '#f59e0b', other: '#94a3b8' }
 
   return (
     <div>
-      <h2>文件管理</h2>
+      <div className="files-head">
+        <h2>文件管理</h2>
+        <form onSubmit={handleUpload} className="inline">
+          <input type="file" ref={fileRef} />
+          <button type="submit" disabled={busy}>上传文件</button>
+        </form>
+      </div>
+
+      {/* 存储概览 */}
+      <div className="files-stats">
+        <div className="fs-block">
+          <span className="fs-num">{stats.total_files}</span>
+          <span className="fs-label">文件总数</span>
+        </div>
+        <div className="fs-block">
+          <span className="fs-num">{fmtSize(totalSize)}</span>
+          <span className="fs-label">总大小</span>
+        </div>
+        <div className="fs-block fs-legend">
+          {['image', 'apk', 'doc', 'other'].map((t) => (
+            <span key={t} className="fs-legend-item">
+              <i style={{ background: colorOf[t] }} />{TYPE_META[t].label} {stats.by_type?.[t]?.count || 0} 个 · {fmtSize(stats.by_type?.[t]?.size || 0)}（{typePct(t)}%）
+            </span>
+          ))}
+        </div>
+        <div className="fs-bar">
+          {['image', 'apk', 'doc', 'other'].map((t) => (
+            <i key={t} style={{ width: `${typePct(t)}%`, background: colorOf[t] }} />
+          ))}
+        </div>
+      </div>
+
       {err && <div className="err">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
-      <form onSubmit={handleUpload} className="task-form">
-        <input type="file" ref={fileRef} />
-        <button type="submit">上传文件</button>
-      </form>
-
-      <p className="hint">设备清单（用于“推送到设备”）：{devices.length} 台</p>
-      <table>
-        <thead>
-          <tr><th>ID</th><th>文件名</th><th>大小</th><th>上传时间</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          {items.map((f) => (
-            <tr key={f.id}>
-              <td>{f.id}</td>
-              <td>{f.filename}</td>
-              <td>{(f.size / 1024).toFixed(1)} KB</td>
-              <td>{f.created_at}</td>
-              <td>
-                <button onClick={() => api.downloadFile(f.id, f.filename)}>下载</button>
-                <button className="danger" onClick={() => handleDelete(f.id)}>删除</button>
-                <button onClick={() => handlePush(f.id)}>推送到设备</button>
-                <div className="dev-pick">
-                  {devices.map((d) => (
-                    <label key={d.id} className="chip">
-                      <input
-                        type="checkbox"
-                        checked={(selected[f.id] || []).includes(d.id)}
-                        onChange={() => toggleDevice(f.id, d.id)}
-                      />
-                      {d.name}
-                    </label>
-                  ))}
-                </div>
-              </td>
-            </tr>
+      {/* 类型筛选 + 批量操作 */}
+      <div className="files-toolbar">
+        <div className="layout-switch" style={{ flexWrap: 'wrap' }}>
+          {typeTabs.map(([k, label, n]) => (
+            <button key={k} className={typeFilter === k ? 'active' : ''} onClick={() => setTypeFilter(k)}>
+              {label}{n > 0 ? ` (${n})` : ''}
+            </button>
           ))}
-          {items.length === 0 && (
-            <tr><td colSpan="5">暂无文件，先上传一个</td></tr>
-          )}
-        </tbody>
-      </table>
+        </div>
+        {selCount > 0 && (
+          <div className="files-batch">
+            <span className="batch-count">已选 {selCount} 个</span>
+            <button onClick={() => openModal('push', [...selection])} disabled={busy}>批量推送</button>
+            {[...selection].some((id) => items.find((f) => f.id === id)?.filename.toLowerCase().endsWith('.apk')) && (
+              <button className="accent" onClick={() => openModal('install', [...selection].filter((id) => items.find((f) => f.id === id)?.filename.toLowerCase().endsWith('.apk')))} disabled={busy}>批量安装</button>
+            )}
+            <button className="danger" onClick={handleBatchDelete} disabled={busy}>批量删除</button>
+            <button className="ghost" onClick={() => setSelection(new Set())} disabled={busy}>取消</button>
+          </div>
+        )}
+      </div>
+
+      {/* 文件列表 */}
+      <div className="device-table-wrap files-table-wrap">
+        <table className="device-table">
+          <thead>
+            <tr>
+              <th className="col-check"><input type="checkbox" checked={allChecked} onChange={toggleAll} /></th>
+              <th>文件名</th>
+              <th>类型</th>
+              <th>大小</th>
+              <th>上传时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((f) => {
+              const t = fileType(f.filename)
+              const meta = TYPE_META[t]
+              return (
+                <tr key={f.id} className={selection.has(f.id) ? 'row-selected' : ''}>
+                  <td className="col-check">
+                    <input type="checkbox" checked={selection.has(f.id)} onChange={() => toggleOne(f.id)} />
+                  </td>
+                  <td className="file-name">
+                    <span className={`file-type-badge ${meta.cls}`}>{meta.label}</span>
+                    <span className="file-name-text" title={f.filename}>{f.filename}</span>
+                  </td>
+                  <td><span className={`file-type-tag t-${meta.cls}`}>{meta.label}</span></td>
+                  <td>{fmtSize(f.size)}</td>
+                  <td>{fmtTime(f.created_at)}</td>
+                  <td className="file-ops">
+                    <button className="ghost" onClick={() => openPreview(f)}>预览</button>
+                    <button className="ghost" onClick={() => api.downloadFile(f.id, f.filename)}>下载</button>
+                    <button className="ghost" onClick={() => openModal('push', [f.id])}>推送</button>
+                    {t === 'apk' && (
+                      <button className="accent" onClick={() => openModal('install', [f.id])}>安装</button>
+                    )}
+                    <button className="danger" onClick={() => handleDelete(f.id)}>删除</button>
+                  </td>
+                </tr>
+              )
+            })}
+            {filtered.length === 0 && (
+              <tr><td colSpan="6" className="empty-cell">暂无{typeFilter !== 'all' ? TYPE_META[typeFilter].label : ''}文件，点击上方上传</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 推送/安装弹窗 */}
+      {modal && (
+        <div className="modal-mask" onClick={() => setModal(null)}>
+          <div className="modal-body files-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{modal.mode === 'install' ? `安装到设备（${modal.ids.length} 个 APK）` : `推送到设备（${modal.ids.length} 个文件）`}</h3>
+            <p className="hint">已选 {pushDev.size} 台设备，可先按分组快速选择，再单独微调</p>
+
+            {groups.length > 0 && (
+              <>
+                <div className="push-sec-title">按分组选择</div>
+                <div className="dev-pick push-group-pick">
+                  {groups.map((g) => {
+                    const ids = groupDevices(g.id).map((d) => d.id)
+                    const on = ids.length > 0 && ids.every((id) => pushDev.has(id))
+                    return (
+                      <label key={g.id} className="chip">
+                        <input type="checkbox" checked={on} onChange={() => toggleGroup(g.id)} />
+                        <b>{g.name}</b>
+                        <span className="chip-sub">{ids.length} 台</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+
+            <div className="push-sec-title">单独选择设备</div>
+            <div className="dev-pick push-dev-pick">
+              {devices.length === 0 && <p className="hint">暂无设备，请先在设备管理创建</p>}
+              {devices.map((d) => (
+                <label key={d.id} className="chip">
+                  <input
+                    type="checkbox"
+                    checked={pushDev.has(d.id)}
+                    onChange={() => toggleDev(d.id)}
+                  />
+                  {d.name}（{d.serial}）
+                  <span className="chip-sub">{groupMap[d.group_id] || '未分组'}</span>
+                </label>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => setModal(null)} disabled={busy}>取消</button>
+              <button onClick={handleModalConfirm} disabled={busy}>
+                {modal.mode === 'install' ? '安装' : '推送'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 预览弹窗 */}
+      {preview && (
+        <div className="modal-mask" onClick={() => { setPreview(null); if (preview.url) URL.revokeObjectURL(preview.url) }}>
+          <div className="modal-body files-preview" onClick={(e) => e.stopPropagation()}>
+            <h3>{preview.filename}</h3>
+            {preview.type === 'image' && preview.url ? (
+              <div className="preview-img-wrap"><img src={preview.url} alt={preview.filename} /></div>
+            ) : (
+              <div className="preview-meta">
+                <span className={`file-type-badge ${TYPE_META[preview.type].cls}`}>{TYPE_META[preview.type].label}</span>
+                <p>该类型暂不支持在线预览，可点击下载查看。</p>
+                <p>大小：{fmtSize(preview.size)}</p>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => { setPreview(null); if (preview.url) URL.revokeObjectURL(preview.url) }}>关闭</button>
+              <button onClick={() => api.downloadFile(preview.id, preview.filename)}>下载</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

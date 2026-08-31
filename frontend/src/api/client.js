@@ -33,19 +33,41 @@ http.interceptors.response.use(
 )
 
 export const api = {
-  login: (username, password) => http.post('/auth/login', { username, password }),
+  login: (username, password, extra = {}) => http.post('/auth/login', { username, password, ...extra }),
   me: () => http.get('/auth/me'),
 
   listDevices: (params) => http.get('/devices', { params }),
+  getDevice: (id) => http.get(`/devices/${id}`),
   createDevice: (body) => http.post('/devices', body),
   batchCreate: (body) => http.post('/devices/batch', body),
   deleteDevice: (id) => http.delete(`/devices/${id}`),
+  batchDelete: (deviceIds) => http.post('/devices/batch-delete', { device_ids: deviceIds }),
+  batchPower: (deviceIds, action) => http.post('/devices/batch-power', { device_ids: deviceIds, action }),
+  batchSetGroup: (deviceIds, groupId) => http.post('/devices/batch-set-group', { device_ids: deviceIds, group_id: groupId }),
+  installApk: (deviceIds, file) => {
+    const fd = new FormData()
+    fd.append('device_ids', deviceIds.join(','))
+    fd.append('file', file)
+    return http.post('/devices/install-apk', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   controlDevice: (id, action, body) => http.post(`/devices/${id}/control/${action}`, body),
+  powerDevice: (id, action) => http.post(`/devices/${id}/power/${action}`),
+  deviceScreenshot: (id) => http.get(`/devices/${id}/screenshot`, { responseType: 'blob' }),
+  discoverDevices: () => http.get('/devices/discover'),
+  importDevice: (body) => http.post('/devices/import', body),
+  syncDevices: () => http.post('/devices/sync'),
+
+  // —— 轮次运行模式 ——
+  getRotation: () => http.get('/rotation'),
+  updateRotation: (body) => http.put('/rotation', body),
 
   listTasks: () => http.get('/tasks'),
   createTask: (body) => http.post('/tasks', body),
   runTask: (id) => http.post(`/tasks/${id}/run`),
   deleteTask: (id) => http.delete(`/tasks/${id}`),
+  taskExecutions: (id) => http.get(`/tasks/${id}/executions`),
 
   listUsers: () => http.get('/users'),
   createUser: (body) => http.post('/users', body),
@@ -65,6 +87,7 @@ export const api = {
     })
   },
   listFiles: (params) => http.get('/files', { params }),
+  fileStats: () => http.get('/files/stats'),
   downloadFile: (id, filename) =>
     http.get(`/files/${id}/download`, { responseType: 'blob' }).then((r) => {
       const url = window.URL.createObjectURL(new Blob([r.data]))
@@ -76,6 +99,8 @@ export const api = {
     }),
   deleteFile: (id) => http.delete(`/files/${id}`),
   pushFile: (id, deviceIds) => http.post(`/files/${id}/push`, { device_ids: deviceIds }),
+  installFile: (id, deviceIds) => http.post(`/files/${id}/install`, { device_ids: deviceIds }),
+  getFileBlob: (id) => http.get(`/files/${id}/download`, { responseType: 'blob' }),
 
   // —— 脚本管理（任务书 #9）——
   listScripts: () => http.get('/scripts'),
@@ -84,6 +109,8 @@ export const api = {
   updateScript: (id, body) => http.patch(`/scripts/${id}`, body),
   deleteScript: (id) => http.delete(`/scripts/${id}`),
   executeScript: (id, deviceIds) => http.post(`/scripts/${id}/execute`, { device_ids: deviceIds }),
+  duplicateScript: (id) => http.post(`/scripts/${id}/duplicate`),
+  scriptExecutions: (scriptId) => http.get('/scripts/executions', { params: { script_id: scriptId } }),
 
   // —— 分组管理（任务书 #10）——
   listGroups: () => http.get('/groups'),
@@ -103,6 +130,24 @@ export const api = {
   resolveAlert: (id) => http.post(`/alerts/${id}/resolve`),
 
   overview: () => http.get('/metrics/overview'),
+
+
+  downloadCsv: async (kind) => {
+    const res = await http.get(`/export/${kind}`, { responseType: 'blob' })
+    const url = URL.createObjectURL(new Blob([res.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${kind}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+  getSettings: () => http.get('/settings'),
+  updateSettings: (data) => http.put('/settings', data),
+  exportUrl: (kind) => `/api/export/${kind}`,
+  serverMetrics: () => http.get('/metrics/server'),
+  metricsTrend: (hours) => http.get('/metrics/trend', { params: { hours } }),
 }
 
 export default http
