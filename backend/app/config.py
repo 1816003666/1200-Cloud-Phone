@@ -79,6 +79,12 @@ class Config:
     REDROID_PRODUCT_NAME = os.environ.get("REDROID_PRODUCT_NAME", "Pixel 6")
     REDROID_LOCALE = os.environ.get("REDROID_LOCALE", "zh-CN")
 
+    # ---- 新容器初始化（默认应用：iLauncher 启动器 / x浏览器 默认浏览器 / 隐藏 WebViewShell）----
+    REDROID_SETUP_ENABLED = os.environ.get("REDROID_SETUP_ENABLED", "true").lower() in ("1", "true", "yes")
+    DEFAULT_LAUNCHER_PKG = os.environ.get("DEFAULT_LAUNCHER_PKG", "com.launcheros15.ilauncher")
+    DEFAULT_BROWSER_PKG = os.environ.get("DEFAULT_BROWSER_PKG", "com.mmbox.xbrowser")
+    HIDE_WEBVIEW_SHELL_PKG = os.environ.get("HIDE_WEBVIEW_SHELL_PKG", "org.chromium.webview_shell")
+
     # ---- CORS ----
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 

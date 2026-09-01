@@ -816,6 +816,63 @@ def _deploy_scrcpy_server(client, port: int, retries: int = 3, delay: float = 6)
             time.sleep(delay)
 
 
+def _setup_default_apps(serial: str) -> dict:
+    """新容器初始化：安装 iLauncher / x浏览器，隐藏 WebViewShell，设置默认启动器与默认浏览器。
+
+    依赖 backend/resources/apk/ 下的 ilauncher.apk、xbrowser.apk。
+    """
+    import shutil
+    import time as _t
+    results: dict = {"enabled": True}
+    if not current_app.config.get("REDROID_SETUP_ENABLED", True):
+        return {"enabled": False}
+    apk_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "apk")
+    launcher_pkg = current_app.config.get("DEFAULT_LAUNCHER_PKG", "com.launcheros15.ilauncher")
+    browser_pkg = current_app.config.get("DEFAULT_BROWSER_PKG", "com.mmbox.xbrowser")
+    hide_pkg = current_app.config.get("HIDE_WEBVIEW_SHELL_PKG", "org.chromium.webview_shell")
+
+    def is_installed(pkg: str) -> bool:
+        rc, out, err = _adb_shell(serial, f"pm path {pkg}", timeout=15)
+        return "package:" in out.decode(errors="ignore")
+
+    # 1) 安装 iLauncher / x浏览器（已装则跳过）
+    for fname, pkg in (("ilauncher.apk", launcher_pkg), ("xbrowser.apk", browser_pkg)):
+        apk = os.path.join(apk_dir, fname)
+        if not os.path.isfile(apk):
+            results[fname] = "apk-missing"
+            continue
+        if is_installed(pkg):
+            results[fname] = "already"
+            continue
+        tmp = _adb_ascii_copy(apk)
+        try:
+            rc, out, err = _run_adb(["-s", serial, "install", "-r", tmp], timeout=180)
+            results[fname] = "ok" if rc == 0 else f"fail:{err.decode(errors='ignore')[:80]}"
+        finally:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+
+    # 2) 隐藏 WebViewShell
+    if hide_pkg and is_installed(hide_pkg):
+        rc, out, err = _adb_shell(serial, f"pm disable-user --user 0 {hide_pkg}", timeout=15)
+        results["hide_webview"] = "ok" if rc == 0 else f"fail:{err.decode(errors='ignore')[:60]}"
+
+    # 3) 设置默认启动器 / 默认浏览器（应用刚装完，稍等包管理刷新）
+    _t.sleep(2)
+    if is_installed(launcher_pkg):
+        rc, out, err = _adb_shell(serial, f"cmd role add-role-holder --user 0 android.app.role.HOME {launcher_pkg}", timeout=20)
+        results["home"] = "ok" if rc == 0 else f"fail:{err.decode(errors='ignore')[:60]}"
+    if is_installed(browser_pkg):
+        rc, out, err = _adb_shell(serial, f"cmd role add-role-holder --user 0 android.app.role.BROWSER {browser_pkg}", timeout=20)
+        results["browser"] = "ok" if rc == 0 else f"fail:{err.decode(errors='ignore')[:60]}"
+
+    # 4) 点亮默认启动器
+    _adb_shell(serial, "am start -a android.intent.action.MAIN -c android.intent.category.HOME", timeout=15)
+    return results
+
+
 def create_redroid_container(port: int) -> dict:
     """在服务器上创建并启动 redroid 容器。"""
     if not _ssh_enabled():
@@ -884,6 +941,9 @@ def create_redroid_container(port: int) -> dict:
 
         # 自动部署 scrcpy server（保证视频投屏可用、画面一致）
         _deploy_scrcpy_server(client, port)
+
+        # 新容器初始化：安装 iLauncher/x浏览器、隐藏 WebViewShell、设置默认启动器/浏览器
+        _setup_default_apps(serial)
 
         return {"ok": True, "container": container_name, "port": port, "serial": serial}
     except Exception as e:
