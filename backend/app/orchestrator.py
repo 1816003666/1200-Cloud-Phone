@@ -833,19 +833,38 @@ def create_redroid_container(port: int) -> dict:
             _ssh_exec(client, f"docker start {container_name}")
         else:
             # 创建新容器
-            # 以第一台云手机（redroid1/15555）为模板：gpu_mode=guest、dpi=480、fps=60
+            # 以第二台云手机（redroid_2/5557）为模板：720P/dpi320 流畅优先 + Pixel 6 伪装
+            _gpu = current_app.config.get("REDROID_GPU_MODE", "guest")
+            _w = current_app.config.get("REDROID_WIDTH", "720")
+            _h = current_app.config.get("REDROID_HEIGHT", "1280")
+            _dpi = current_app.config.get("REDROID_DPI", "320")
+            _fps = str(current_app.config.get("REDROID_FPS", "") or "")
+            _nb = str(current_app.config.get("REDROID_NATIVE_BRIDGE", "") or "")
+            _brand = str(current_app.config.get("REDROID_PRODUCT_BRAND", "") or "")
+            _manu = str(current_app.config.get("REDROID_PRODUCT_MANUFACTURER", "") or "")
+            _model = str(current_app.config.get("REDROID_PRODUCT_MODEL", "") or "")
+            _pname = str(current_app.config.get("REDROID_PRODUCT_NAME", "") or "")
+            _locale = str(current_app.config.get("REDROID_LOCALE", "") or "")
+            _serial = f"SN{port}"
             docker_cmd = (
                 f"docker run -itd --privileged "
                 f"--name {container_name} "
                 f"-p {port}:5555 "
                 f"-v ~/redroid-data/{port}:/data "
                 f"{cfg['image']} "
-                f"androidboot.redroid_gpu_mode={current_app.config.get('REDROID_GPU_MODE', 'guest')} "
-                f"androidboot.redroid_width={current_app.config.get('REDROID_WIDTH', '1080')} "
-                f"androidboot.redroid_height={current_app.config.get('REDROID_HEIGHT', '1920')} "
-                f"androidboot.redroid_dpi={current_app.config.get('REDROID_DPI', '480')} "
-                f"androidboot.redroid_fps={current_app.config.get('REDROID_FPS', '60')} "
-                f"androidboot.native_bridge={current_app.config.get('REDROID_NATIVE_BRIDGE', '0')}"
+                f"androidboot.redroid_gpu_mode={_gpu} "
+                f"androidboot.redroid_width={_w} "
+                f"androidboot.redroid_height={_h} "
+                f"androidboot.redroid_dpi={_dpi} "
+                + (f"androidboot.redroid_fps={_fps} " if _fps else "")
+                + (f"androidboot.redroid_root_props=ro.product.locale={_locale} " if _locale else "")
+                + (f"ro.product.brand={_brand} " if _brand else "")
+                + (f"ro.product.manufacturer={_manu} " if _manu else "")
+                + (f"ro.product.model={_model} " if _model else "")
+                + (f"ro.product.name={_pname} " if _pname else "")
+                + f"ro.serialno={_serial} "
+                + f"androidboot.serialno={_serial}"
+                + (f" androidboot.native_bridge={_nb}" if _nb else "")
             )
             rc, out, err = _ssh_exec(client, docker_cmd, timeout=60)
             if rc != 0:
