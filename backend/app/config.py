@@ -64,6 +64,14 @@ class Config:
     # scrcpy server 视频监听端口（容器内，与 ws-scrcpy remote=tcp:8886 对应）
     SCRCPY_SERVER_PORT = int(os.environ.get("SCRCPY_SERVER_PORT", "8886"))
 
+    # ---- redroid 容器模板（以第一台云手机 redroid1/15555 为基准）----
+    REDROID_GPU_MODE = os.environ.get("REDROID_GPU_MODE", "guest")
+    REDROID_WIDTH = os.environ.get("REDROID_WIDTH", "1080")
+    REDROID_HEIGHT = os.environ.get("REDROID_HEIGHT", "1920")
+    REDROID_DPI = os.environ.get("REDROID_DPI", "480")
+    REDROID_FPS = os.environ.get("REDROID_FPS", "60")
+    REDROID_NATIVE_BRIDGE = os.environ.get("REDROID_NATIVE_BRIDGE", "0")
+
     # ---- CORS ----
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 

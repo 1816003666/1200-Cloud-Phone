@@ -833,15 +833,19 @@ def create_redroid_container(port: int) -> dict:
             _ssh_exec(client, f"docker start {container_name}")
         else:
             # 创建新容器
+            # 以第一台云手机（redroid1/15555）为模板：gpu_mode=guest、dpi=480、fps=60
             docker_cmd = (
                 f"docker run -itd --privileged "
                 f"--name {container_name} "
                 f"-p {port}:5555 "
                 f"-v ~/redroid-data/{port}:/data "
                 f"{cfg['image']} "
-                f"androidboot.redroid_width=1080 "
-                f"androidboot.redroid_height=1920 "
-                f"androidboot.redroid_dpi=320"
+                f"androidboot.redroid_gpu_mode={current_app.config.get('REDROID_GPU_MODE', 'guest')} "
+                f"androidboot.redroid_width={current_app.config.get('REDROID_WIDTH', '1080')} "
+                f"androidboot.redroid_height={current_app.config.get('REDROID_HEIGHT', '1920')} "
+                f"androidboot.redroid_dpi={current_app.config.get('REDROID_DPI', '480')} "
+                f"androidboot.redroid_fps={current_app.config.get('REDROID_FPS', '60')} "
+                f"androidboot.native_bridge={current_app.config.get('REDROID_NATIVE_BRIDGE', '0')}"
             )
             rc, out, err = _ssh_exec(client, docker_cmd, timeout=60)
             if rc != 0:
