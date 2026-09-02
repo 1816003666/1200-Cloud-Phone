@@ -51,7 +51,7 @@ function PhoneScreen({ device, large }) {
   }, [device.id, isRedroid, isError, isStopped, large])
 
   // 大屏预览：ws-scrcpy iframe（内部 MSE 播放 H.264）
-  const WS_SCRCPY_HOST = '100.66.5.21'
+  const WS_SCRCPY_HOST = '192.168.9.131'
   const WS_SCRCPY_PORT = 8100
 
   function buildScrcpyUrl() {
@@ -302,7 +302,7 @@ function ImportModal({ onClose, onImported }) {
 }
 
 /* ---------- 大屏预览弹窗：方案3 · MST (WS scrcpy) 视频投屏 ---------- */
-const MST_HOST = '100.66.5.21'
+const MST_HOST = '192.168.9.131'
 const MST_PORT = 8100
 
 /* 线性图标（Feather 风格，stroke 随文字颜色） */
