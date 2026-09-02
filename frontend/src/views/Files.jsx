@@ -301,60 +301,6 @@ export default function Files() {
       {err && <div className="err">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
-      {/* 云手机文件预览 */}
-      <div className="files-devfs" style={{ marginTop: 18 }}>
-        <div className="files-head" style={{ marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>云手机文件预览</h3>
-          <select value={fsDevice} onChange={onFsDeviceChange} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d0d7de', background: '#fff' }}>
-            <option value="">请选择云手机（在线）</option>
-            {devices.filter((d) => d.status === 'running').map((d) => (
-              <option key={d.id} value={d.id}>{d.name}（{d.serial}）</option>
-            ))}
-          </select>
-          <button className="ghost" onClick={loadFs} disabled={!fsDevice || fsLoading}>刷新</button>
-        </div>
-        {fsDevice && (
-          <div className="device-table-wrap files-table-wrap" style={{ marginTop: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <button className="ghost" onClick={goFsUp} disabled={!fsPath || fsPath === '/'}>↑ 上级</button>
-              <code style={{ background: '#f1f3f5', padding: '3px 8px', borderRadius: 4, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fsPath}</code>
-              {fsLoading && <span className="hint">加载中…</span>}
-              {fsErr && <span className="err" style={{ margin: 0 }}>{fsErr}</span>}
-            </div>
-            <table className="device-table">
-              <thead>
-                <tr><th>名称</th><th>类型</th><th>大小</th><th>权限</th><th>修改时间</th><th>操作</th></tr>
-              </thead>
-              <tbody>
-                {fsItems.map((item) => (
-                  <tr key={item.path}>
-                    <td className="file-name">
-                      <span className={`file-type-badge ${item.is_dir ? 'doc' : 'other'}`}>{item.is_dir ? '目录' : '文件'}</span>
-                      <span className="file-name-text" title={item.name}>{item.is_dir ? '📁 ' : ''}{item.name}</span>
-                    </td>
-                    <td>{item.is_dir ? '目录' : '文件'}</td>
-                    <td>{item.is_dir ? '-' : fmtSize(item.size)}</td>
-                    <td style={{ color: '#64748b', fontSize: 12 }}>{item.perms}</td>
-                    <td>{item.mtime}</td>
-                    <td className="file-ops">
-                      {item.is_dir ? (
-                        <button className="ghost" onClick={() => enterFsDir(item.path)}>打开</button>
-                      ) : (
-                        <>
-                          <button className="ghost" onClick={() => openFsPreview(item)}>预览</button>
-                          <button className="ghost" onClick={() => downloadFsFile(item)}>下载</button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {!fsLoading && fsItems.length === 0 && <tr><td colSpan="6" className="empty-cell">目录为空</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* 类型筛选 + 批量操作 */}
       <div className="files-toolbar">
         <div className="layout-switch" style={{ flexWrap: 'wrap' }}>
@@ -423,6 +369,60 @@ export default function Files() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* 云手机文件预览 */}
+      <div className="files-devfs" style={{ marginTop: 18 }}>
+        <div className="files-head" style={{ marginBottom: 8 }}>
+          <h3 style={{ margin: 0 }}>云手机文件预览</h3>
+          <select value={fsDevice} onChange={onFsDeviceChange} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d0d7de', background: '#fff' }}>
+            <option value="">请选择云手机（在线）</option>
+            {devices.filter((d) => d.status === 'running').map((d) => (
+              <option key={d.id} value={d.id}>{d.name}（{d.serial}）</option>
+            ))}
+          </select>
+          <button className="ghost" onClick={loadFs} disabled={!fsDevice || fsLoading}>刷新</button>
+        </div>
+        {fsDevice && (
+          <div className="device-table-wrap files-table-wrap" style={{ marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <button className="ghost" onClick={goFsUp} disabled={!fsPath || fsPath === '/'}>↑ 上级</button>
+              <code style={{ background: '#f1f3f5', padding: '3px 8px', borderRadius: 4, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fsPath}</code>
+              {fsLoading && <span className="hint">加载中…</span>}
+              {fsErr && <span className="err" style={{ margin: 0 }}>{fsErr}</span>}
+            </div>
+            <table className="device-table">
+              <thead>
+                <tr><th>名称</th><th>类型</th><th>大小</th><th>权限</th><th>修改时间</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {fsItems.map((item) => (
+                  <tr key={item.path}>
+                    <td className="file-name">
+                      <span className={`file-type-badge ${item.is_dir ? 'doc' : 'other'}`}>{item.is_dir ? '目录' : '文件'}</span>
+                      <span className="file-name-text" title={item.name}>{item.is_dir ? '📁 ' : ''}{item.name}</span>
+                    </td>
+                    <td>{item.is_dir ? '目录' : '文件'}</td>
+                    <td>{item.is_dir ? '-' : fmtSize(item.size)}</td>
+                    <td style={{ color: '#64748b', fontSize: 12 }}>{item.perms}</td>
+                    <td>{item.mtime}</td>
+                    <td className="file-ops">
+                      {item.is_dir ? (
+                        <button className="ghost" onClick={() => enterFsDir(item.path)}>打开</button>
+                      ) : (
+                        <>
+                          <button className="ghost" onClick={() => openFsPreview(item)}>预览</button>
+                          <button className="ghost" onClick={() => downloadFsFile(item)}>下载</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!fsLoading && fsItems.length === 0 && <tr><td colSpan="6" className="empty-cell">目录为空</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* 推送/安装弹窗 */}
