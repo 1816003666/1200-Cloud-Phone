@@ -1943,3 +1943,16 @@ button.accent:hover { background: var(--accent-hover); }
 .login-captcha { display: flex; gap: 8px; align-items: center; }
 .captcha-q { flex-shrink: 0; font-size: 15px; font-weight: 600; background: var(--primary-soft, #e0f2fe); border: 1px solid var(--border-light); border-radius: var(--r-md); padding: 6px 10px; color: var(--text-strong); }
 .login-captcha input { flex: 1; }
+/* 脚本管理 */
+.panel { background: #fff; border: 1px solid var(--border-light, #e2e8f0); border-radius: 12px; padding: 16px; }
+.script-step-list { display: flex; flex-direction: column; gap: 6px; }
+.script-step-item { display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; }
+.script-step-idx { width: 22px; height: 22px; border-radius: 50%; background: #1d4ed8; color: #fff; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.script-step-badge { background: #e0e7ff; color: #3730a3; font-size: 12px; border-radius: 6px; padding: 2px 8px; flex: none; }
+.script-step-summary { flex: 1; font-size: 13px; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.script-step-ops { display: flex; gap: 4px; flex: none; }
+.chip-active { border-color: #2563eb !important; background: #eff6ff !important; color: #1d4ed8 !important; }
+tr.row-active td { background: #eff6ff; }
+@media (max-width: 1100px) {
+  .panel + .panel, div[style*="gridTemplateColumns"] { grid-template-columns: 1fr !important; }
+}
