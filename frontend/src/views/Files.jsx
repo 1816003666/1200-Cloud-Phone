@@ -9,6 +9,7 @@ const TYPE_META = {
 }
 const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico']
 const DOC_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv']
+const TEXT_EXT = ['txt', 'md', 'log', 'json', 'xml', 'csv', 'sh', 'py', 'js', 'ts', 'html', 'css', 'ini', 'conf', 'properties', 'cfg', 'yml', 'yaml', 'env', 'sql', 'bat', 'ps1', 'kt', 'java', 'c', 'h', 'cpp']
 
 function fileType(name) {
   const ext = (name.split('.').pop() || '').toLowerCase()
@@ -45,6 +46,13 @@ export default function Files() {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
+  // 云手机文件预览
+  const [fsDevice, setFsDevice] = useState('')
+  const [fsPath, setFsPath] = useState('/sdcard/')
+  const [fsItems, setFsItems] = useState([])
+  const [fsLoading, setFsLoading] = useState(false)
+  const [fsErr, setFsErr] = useState('')
+  const [fsPreview, setFsPreview] = useState(null) // {name,type,content,url}
 
   async function load() {
     const r = await api.listFiles({ page: 1, page_size: 200 })
@@ -160,6 +168,67 @@ export default function Files() {
     next.has(id) ? next.delete(id) : next.add(id)
     setPushDev(next)
   }
+
+  // ---- 云手机文件预览 ----
+  async function loadFs() {
+    if (!fsDevice) return
+    setFsLoading(true); setFsErr('')
+    try {
+      const r = await api.deviceFs(fsDevice, fsPath)
+      setFsItems(r.data.items || [])
+    } catch (e) {
+      setFsErr(e.response?.data?.error || '目录加载失败')
+    } finally {
+      setFsLoading(false)
+    }
+  }
+  function onFsDeviceChange(e) {
+    setFsDevice(e.target.value)
+    setFsPath('/sdcard/')
+    setFsItems([])
+    setFsErr('')
+  }
+  function enterFsDir(p) {
+    setFsPath(p.endsWith('/') ? p : p + '/')
+  }
+  function goFsUp() {
+    const p = fsPath.replace(/\/+$/, '')
+    if (!p) return setFsPath('/')
+    const idx = p.lastIndexOf('/')
+    setFsPath(idx <= 0 ? '/' : p.slice(0, idx + 1))
+  }
+  async function openFsPreview(item) {
+    const ext = (item.name.split('.').pop() || '').toLowerCase()
+    if (IMG_EXT.includes(ext)) {
+      try {
+        const r = await api.deviceFsFile(fsDevice, item.path)
+        const url = URL.createObjectURL(r.data)
+        setFsPreview({ name: item.name, type: 'image', url })
+      } catch (e) {
+        setErr('图片加载失败')
+      }
+    } else if (TEXT_EXT.includes(ext)) {
+      try {
+        const r = await api.deviceFsRead(fsDevice, item.path)
+        setFsPreview({ name: item.name, type: 'text', content: r.data.content, truncated: r.data.truncated })
+      } catch (e) {
+        setErr('文本读取失败')
+      }
+    } else {
+      setFsPreview({ name: item.name, type: 'other' })
+    }
+  }
+  async function downloadFsFile(item) {
+    try {
+      const r = await api.deviceFsFile(fsDevice, item.path)
+      const url = URL.createObjectURL(r.data)
+      const a = document.createElement('a')
+      a.href = url; a.download = item.name; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setErr('下载失败')
+    }
+  }
   function toggleGroup(gid) {
     const ids = groupDevices(gid).map((d) => d.id)
     if (!ids.length) return
@@ -231,6 +300,60 @@ export default function Files() {
 
       {err && <div className="err">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
+
+      {/* 云手机文件预览 */}
+      <div className="files-devfs" style={{ marginTop: 18 }}>
+        <div className="files-head" style={{ marginBottom: 8 }}>
+          <h3 style={{ margin: 0 }}>云手机文件预览</h3>
+          <select value={fsDevice} onChange={onFsDeviceChange} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d0d7de', background: '#fff' }}>
+            <option value="">请选择云手机（在线）</option>
+            {devices.filter((d) => d.status === 'running').map((d) => (
+              <option key={d.id} value={d.id}>{d.name}（{d.serial}）</option>
+            ))}
+          </select>
+          <button className="ghost" onClick={loadFs} disabled={!fsDevice || fsLoading}>刷新</button>
+        </div>
+        {fsDevice && (
+          <div className="device-table-wrap files-table-wrap" style={{ marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <button className="ghost" onClick={goFsUp} disabled={!fsPath || fsPath === '/'}>↑ 上级</button>
+              <code style={{ background: '#f1f3f5', padding: '3px 8px', borderRadius: 4, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fsPath}</code>
+              {fsLoading && <span className="hint">加载中…</span>}
+              {fsErr && <span className="err" style={{ margin: 0 }}>{fsErr}</span>}
+            </div>
+            <table className="device-table">
+              <thead>
+                <tr><th>名称</th><th>类型</th><th>大小</th><th>权限</th><th>修改时间</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {fsItems.map((item) => (
+                  <tr key={item.path}>
+                    <td className="file-name">
+                      <span className={`file-type-badge ${item.is_dir ? 'doc' : 'other'}`}>{item.is_dir ? '目录' : '文件'}</span>
+                      <span className="file-name-text" title={item.name}>{item.is_dir ? '📁 ' : ''}{item.name}</span>
+                    </td>
+                    <td>{item.is_dir ? '目录' : '文件'}</td>
+                    <td>{item.is_dir ? '-' : fmtSize(item.size)}</td>
+                    <td style={{ color: '#64748b', fontSize: 12 }}>{item.perms}</td>
+                    <td>{item.mtime}</td>
+                    <td className="file-ops">
+                      {item.is_dir ? (
+                        <button className="ghost" onClick={() => enterFsDir(item.path)}>打开</button>
+                      ) : (
+                        <>
+                          <button className="ghost" onClick={() => openFsPreview(item)}>预览</button>
+                          <button className="ghost" onClick={() => downloadFsFile(item)}>下载</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!fsLoading && fsItems.length === 0 && <tr><td colSpan="6" className="empty-cell">目录为空</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* 类型筛选 + 批量操作 */}
       <div className="files-toolbar">
@@ -370,6 +493,31 @@ export default function Files() {
             <div className="modal-actions">
               <button className="ghost" onClick={() => { setPreview(null); if (preview.url) URL.revokeObjectURL(preview.url) }}>关闭</button>
               <button onClick={() => api.downloadFile(preview.id, preview.filename)}>下载</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 云手机文件预览弹窗 */}
+      {fsPreview && (
+        <div className="modal-mask" onClick={() => { setFsPreview(null); if (fsPreview.url) URL.revokeObjectURL(fsPreview.url) }}>
+          <div className="modal-body files-preview" onClick={(e) => e.stopPropagation()}>
+            <h3>{fsPreview.name}</h3>
+            {fsPreview.type === 'image' && fsPreview.url ? (
+              <div className="preview-img-wrap"><img src={fsPreview.url} alt={fsPreview.name} /></div>
+            ) : fsPreview.type === 'text' ? (
+              <div className="devfs-text" style={{ maxHeight: '60vh', overflow: 'auto', background: '#0f172a', color: '#e2e8f0', padding: 12, borderRadius: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'Consolas, Menlo, monospace', fontSize: 13 }}>
+                {fsPreview.content || '(空文件)'}
+                {fsPreview.truncated && <p className="hint" style={{ color: '#94a3b8' }}>（内容较大，仅显示前 150KB）</p>}
+              </div>
+            ) : (
+              <div className="preview-meta">
+                <p>该类型不支持在线预览，可点击下载查看。</p>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => { setFsPreview(null); if (fsPreview.url) URL.revokeObjectURL(fsPreview.url) }}>关闭</button>
+              <button onClick={() => { if (fsPreview.url) { const a = document.createElement('a'); a.href = fsPreview.url; a.download = fsPreview.name; a.click(); URL.revokeObjectURL(fsPreview.url); setFsPreview(null) } }} disabled={!fsPreview.url}>下载</button>
             </div>
           </div>
         </div>

@@ -14,7 +14,7 @@ files_bp = Blueprint("files", __name__)
 from ..extensions import db
 from ..models import FileRecord, Device, DeviceLog, record_audit
 from ..auth import login_required, require_role
-from ..orchestrator import push_file_to_device, install_apk_to_device
+from ..orchestrator import push_file_to_device, install_apk_to_device, list_device_dir, read_device_file, pull_file_from_device, _adb_ascii_dir
 
 
 def _upload_dir():
@@ -238,3 +238,75 @@ def _serialize(r: FileRecord):
         "target_device_id": r.target_device_id,
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# 云手机文件预览：选择云手机，浏览其内部文件系统并预览内容
+# ---------------------------------------------------------------------------
+IMG_EXT_DEV = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"}
+
+
+def _dev_or_404(did):
+    dev = db.session.get(Device, int(did))
+    if dev is None:
+        return None, (jsonify(error="设备不存在"), 404)
+    return dev, None
+
+
+@files_bp.get("/files/devices/<int:did>/fs")
+@login_required
+def device_fs(did):
+    """列出指定云手机某目录的文件。"""
+    dev, err = _dev_or_404(did)
+    if err:
+        return err
+    path = request.args.get("path") or "/sdcard/"
+    return jsonify(list_device_dir(dev.serial, path))
+
+
+@files_bp.get("/files/devices/<int:did>/fs/read")
+@login_required
+def device_fs_read(did):
+    """读取云手机上文本文件内容（前 150KB，用于预览）。"""
+    dev, err = _dev_or_404(did)
+    if err:
+        return err
+    path = request.args.get("path")
+    if not path:
+        return jsonify(error="缺少 path 参数"), 400
+    return jsonify(read_device_file(dev.serial, path))
+
+
+@files_bp.get("/files/devices/<int:did>/fs/file")
+@login_required
+def device_fs_file(did):
+    """拉取云手机文件到本地（图片预览 / 下载），返回文件流。"""
+    dev, err = _dev_or_404(did)
+    if err:
+        return err
+    path = request.args.get("path")
+    if not path:
+        return jsonify(error="缺少 path 参数"), 400
+    tmp_dir = _adb_ascii_dir()
+    import time as _t
+    fname = os.path.basename(path) or f"dev_{_t.time()}"
+    local = os.path.join(tmp_dir, f"dev_{int(_t.time()*1000)}_{fname}")
+    try:
+        res = pull_file_from_device(dev.serial, path, local, timeout=120)
+        if not res.get("ok") or not os.path.isfile(local):
+            return jsonify(error=f"拉取失败: {res.get('output', '')[:120]}"), 400
+        # 由 send_file 负责回传，调用方负责清理
+        resp = send_file(local, as_attachment=False, download_name=fname)
+        resp.call_on_close(lambda: _try_remove(local))
+        return resp
+    except Exception as e:  # noqa: BLE001
+        _try_remove(local)
+        return jsonify(error=f"拉取失败: {e}"), 400
+
+
+def _try_remove(p):
+    try:
+        if os.path.isfile(p):
+            os.remove(p)
+    except OSError:
+        pass

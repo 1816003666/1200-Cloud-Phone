@@ -101,6 +101,9 @@ export const api = {
   pushFile: (id, deviceIds) => http.post(`/files/${id}/push`, { device_ids: deviceIds }),
   installFile: (id, deviceIds) => http.post(`/files/${id}/install`, { device_ids: deviceIds }),
   getFileBlob: (id) => http.get(`/files/${id}/download`, { responseType: 'blob' }),
+  deviceFs: (id, path) => http.get(`/files/devices/${id}/fs`, { params: { path } }),
+  deviceFsRead: (id, path) => http.get(`/files/devices/${id}/fs/read`, { params: { path } }),
+  deviceFsFile: (id, path) => http.get(`/files/devices/${id}/fs/file`, { params: { path }, responseType: 'blob' }),
 
   // —— 脚本管理（任务书 #9）——
   listScripts: () => http.get('/scripts'),

@@ -178,6 +178,67 @@ def push_file_to_device(serial: str, local_path: str, remote_path: str, timeout:
     return {"ok": rc == 0, "output": text, "remote_path": remote_path}
 
 
+def list_device_dir(serial: str, path: str = "/sdcard") -> dict:
+    """列出云手机上指定目录的文件（adb shell ls -la 解析），返回目录/文件条目。"""
+    path = path or "/sdcard"
+    if path == "/sdcard":
+        path = "/sdcard/"
+    rc, out, err = _adb_shell(serial, f"ls -la {path}", timeout=20)
+    if rc != 0:
+        return {"ok": False, "error": err.decode(errors="ignore").strip() or f"无法访问 {path}"}
+    items = []
+    lines = out.decode(errors="replace").splitlines()
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("total"):
+            continue
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        perms = parts[0]
+        if len(perms) < 10 or perms[0] not in "dl-":
+            continue
+        # Android toybox ls：权限 链接数 属主 属组 大小 YYYY-MM-DD HH:MM 名称（日期2段）
+        name_start = 7
+        if not (len(parts[5]) == 10 and parts[5][4] == "-"):
+            name_start = 8  # 老式日期 Jan 1 2023（3段）
+        name = " ".join(parts[name_start:])
+        if name in (".", ".."):
+            continue
+        link_target = None
+        if " -> " in name:
+            name, link_target = name.split(" -> ", 1)
+            name = name.strip()
+        mtime = " ".join(parts[5:name_start])
+        items.append({
+            "name": name,
+            "path": f"{path.rstrip('/')}/{name}",
+            "is_dir": perms.startswith("d"),
+            "is_link": perms.startswith("l"),
+            "size": int(parts[4]) if parts[4].isdigit() else 0,
+            "perms": perms,
+            "mtime": mtime,
+        })
+    items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+    return {"ok": True, "path": path, "items": items}
+
+
+def read_device_file(serial: str, path: str, max_bytes: int = 150000) -> dict:
+    """读取云手机上文本文件内容（head -c 截断，避免大文件刷屏）。"""
+    if not path:
+        return {"ok": False, "error": "缺少路径"}
+    rc, out, err = _adb_shell(serial, f"head -c {max_bytes} {path}", timeout=20)
+    if rc != 0:
+        return {"ok": False, "error": err.decode(errors="ignore").strip() or f"无法读取 {path}"}
+    data = out
+    return {
+        "ok": True,
+        "content": data.decode(errors="replace")[:max_bytes],
+        "bytes": len(data),
+        "truncated": len(data) >= max_bytes,
+    }
+
+
 def pull_file_from_device(serial: str, remote_path: str, local_path: str, timeout: int = 120) -> dict:
     """从设备拉取文件到本地（adb pull）。"""
     import shutil
