@@ -22,7 +22,7 @@ class Config:
 
     # ---- JWT *（生产必须改）----
     JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production-please")
-    JWT_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "12"))
+    JWT_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "168"))
 
     # ---- 设备编排后端 ----
     # simulator = 纯内存 Mock，免 Docker；redroid = 真 Docker Android 容器
