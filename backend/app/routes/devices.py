@@ -45,6 +45,8 @@ def create_device():
         state = orchestrator.create_device(backend, name)
     except ValueError as e:
         return jsonify(error=str(e)), 400
+    if not state.get("serial"):
+        return jsonify(error=state.get("error") or "设备创建失败"), 400
 
     d = Device(name=name, group_id=group_id, status=state["status"],
                serial=state["serial"], backend=backend, ip=state["ip"],
@@ -71,6 +73,13 @@ def batch_create():
     created = []
     for i in range(count):
         state = orchestrator.create_device(backend, f"{prefix}-{i+1}")
+        if not state.get("serial"):
+            continue  # 该台容器创建失败（如端口已被占用），跳过不落库
+        exist = db.session.query(Device).filter_by(
+            backend=backend, serial=state["serial"]).first()
+        if exist:
+            created.append(exist)  # 已存在该 serial，复用，避免重复
+            continue
         d = Device(name=f"{prefix}-{i+1}", group_id=group_id, status=state["status"],
                    serial=state["serial"], backend=backend, ip=state["ip"],
                    fingerprint=state["fingerprint"], created_by=cur.id)
